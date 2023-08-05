@@ -1,0 +1,185 @@
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <EEPROM.h>
+#ifndef STASSID
+#define STASSID "booster4g"
+#define STAPSK  "booster@4g"
+#endif
+const char* ssid = STASSID;
+const char* password = STAPSK;
+int addr = 0;
+ESP8266WebServer server(80);
+const int Motor_turn_in = 4;
+const int Motor_turn_out = 5;
+int x = 0;
+struct SignalObject {
+  float array[60];
+  float maxSignal;
+};
+float readAvrageSignal() {
+  int counter = 0;
+  float signalIn = 0;
+  while (counter < 50) {
+    signalIn = signalIn + analogRead(A0);
+    counter = counter + 1;
+  }
+  return ((signalIn / 50) * (5.0 / 1023.0));
+}
+float getMaxSignal(float tab[])
+{
+  int i = 0;
+  float maxSignal = 0.0;
+  for (i = 0; i < 60; i++) {
+    if (tab[i] > maxSignal) {
+      maxSignal = tab[i];
+    }
+  }
+  return maxSignal;
+}
+SignalObject trackingSignal() {
+  //    initTracking(int(EEPROM.read(addr)));
+  Serial.println(">==< start tracking Signal ....");
+  digitalWrite(Motor_turn_in, 0);
+  digitalWrite(Motor_turn_out, 1);
+  Serial.println("|==> start motor");
+  int counter = 0;
+  SignalObject path_values;
+  while (counter < 60) {
+    path_values.array[counter] = readAvrageSignal();
+    Serial.println(path_values.array[counter]);
+    counter = counter + 1;
+    delay(1000);
+  }
+  path_values.maxSignal = getMaxSignal(path_values.array);
+  digitalWrite(Motor_turn_out, 0);
+  Serial.println("|==> stop motor");
+  return path_values;
+}
+boolean pointingAntenna(float maxSignal, float **PointingMax) {
+  Serial.println(">==< start pointing antenna....");
+  digitalWrite(Motor_turn_in, 1);
+  digitalWrite(Motor_turn_out, 0);
+  Serial.println("|==> start motor");
+  int counter = 0;
+  boolean flag = false;
+  float avs = 0;
+  while (counter < 60) {
+    avs = readAvrageSignal();
+    Serial.println(avs);
+    if ((avs <= maxSignal + 1.5 && avs >= maxSignal - 1.5) || avs >= maxSignal) {
+      digitalWrite(Motor_turn_in, 0);
+      Serial.println("|==> stop motor");
+      flag = true;
+      **PointingMax = avs;
+      EEPROM.write(addr, 60 - counter);
+      EEPROM.commit();
+      return flag;
+    }
+    counter = counter + 1;
+    delay(1000);
+  }
+  return flag;
+}
+
+void initTracking(int position_time) {
+  Serial.println(">==< start initialisation tracking antenna....");
+  digitalWrite(Motor_turn_in, 1);
+  digitalWrite(Motor_turn_out, 0);
+  Serial.println("|==> start motor");
+  Serial.println(position_time);
+  int counter = 0;
+  while (counter < position_time) {
+    counter = counter + 1;
+    Serial.print("=");
+    delay(1000);
+  }
+  digitalWrite(Motor_turn_in, 0);
+  digitalWrite(Motor_turn_out, 0);
+  Serial.println("|==> start motor");
+}
+void setup(void) {
+  EEPROM.begin(512);
+  //  EEPROM.write(addr,0);
+  //  EEPROM.commit();
+  if (int(EEPROM.read(addr)) == 255) {
+    EEPROM.write(addr, 0);
+    EEPROM.commit();
+  } else {
+    Serial.println(int(EEPROM.read(addr))) ;
+  }
+  pinMode(Motor_turn_in, OUTPUT);
+  pinMode(Motor_turn_out, OUTPUT);
+  digitalWrite(Motor_turn_in, 0);
+  digitalWrite(Motor_turn_out, 0);
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("");
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  server.on("/t/1", []() {
+    Serial.println("debut");
+    server.send(200, "text/plain", "Signal Tracking On");
+    SignalObject tab;
+    tab = trackingSignal();
+    float *PointingMax;
+    if (pointingAntenna(tab.maxSignal, &PointingMax)) {
+      Serial.println("Antenna pointed");
+      Serial.print("Tracking Max|=>");
+      Serial.println(tab.maxSignal);
+      Serial.print("Pointing Max|=>");
+      Serial.println(*PointingMax);
+      Serial.print("Ratio|=>");
+      Serial.print((*PointingMax / tab.maxSignal) * 100);
+      Serial.println("%");
+    } 
+      });
+  server.on("/t/0", []() {
+    initTracking(int(EEPROM.read(addr)));
+    EEPROM.write(addr, 0);
+    EEPROM.commit();
+    server.send(200, "text/plain", "Signal Tracking Init");
+  });
+  server.on("/t/2", []() {
+    digitalWrite(Motor_turn_in, 0);
+    digitalWrite(Motor_turn_out, 0);
+    EEPROM.write(addr, 0);
+    EEPROM.commit();
+    server.send(200, "text/plain", "Signal Tracking Stop");
+  });
+  server.on("/t/up", []() {
+    Serial.println(">==< start Up antenna....");
+    digitalWrite(Motor_turn_in, 0);
+    digitalWrite(Motor_turn_out, 1);
+    Serial.println("|==> start motor");
+    EEPROM.write(addr, 0);
+    EEPROM.commit();
+    server.send(200, "text/plain", "Signal P0 Init Up");
+  });
+
+  server.on("/t/down", []() {
+    Serial.println(">==< start Down antenna....");
+    digitalWrite(Motor_turn_in, 1);
+    digitalWrite(Motor_turn_out, 0);
+    Serial.println("|==> start motor");
+    EEPROM.write(addr, 0);
+    EEPROM.commit();
+    server.send(200, "text/plain", "P0 Init down");
+  });
+  server.begin();
+  Serial.println("HTTP server started");
+}
+void loop(void) {
+  server.handleClient();
+  MDNS.update();
+}
