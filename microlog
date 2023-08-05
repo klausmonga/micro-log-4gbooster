@@ -57,7 +57,7 @@ SignalObject trackingSignal() {
   Serial.println("|==> stop motor");
   return path_values;
 }
-boolean pointingAntenna(float maxSignal, float **PointingMax) {
+boolean pointingAntenna(float maxSignal, float PointingMax) {
   Serial.println(">==< start pointing antenna....");
   digitalWrite(Motor_turn_in, 1);
   digitalWrite(Motor_turn_out, 0);
@@ -72,9 +72,13 @@ boolean pointingAntenna(float maxSignal, float **PointingMax) {
       digitalWrite(Motor_turn_in, 0);
       Serial.println("|==> stop motor");
       flag = true;
-      **PointingMax = avs;
+      Serial.println("|==> flag = true;");
+      PointingMax = avs;
+      Serial.println("|==> **PointingMax = avs;");
       EEPROM.write(addr, 60 - counter);
+      Serial.println("|==> EEPROM.write(addr, 60 - counter);");
       EEPROM.commit();
+      Serial.println("|==> EEPROM.commit();");
       return flag;
     }
     counter = counter + 1;
@@ -100,7 +104,7 @@ void initTracking(int position_time) {
   Serial.println("|==> start motor");
 }
 void setup(void) {
-  EEPROM.begin(512);
+  EEPROM.begin(2048);
   //  EEPROM.write(addr,0);
   //  EEPROM.commit();
   if (int(EEPROM.read(addr)) == 255) {
@@ -132,15 +136,15 @@ void setup(void) {
     server.send(200, "text/plain", "Signal Tracking On");
     SignalObject tab;
     tab = trackingSignal();
-    float *PointingMax;
-    if (pointingAntenna(tab.maxSignal, &PointingMax)) {
+    float PointingMax;
+    if (pointingAntenna(tab.maxSignal, PointingMax)) {
       Serial.println("Antenna pointed");
       Serial.print("Tracking Max|=>");
       Serial.println(tab.maxSignal);
       Serial.print("Pointing Max|=>");
-      Serial.println(*PointingMax);
+      Serial.println(PointingMax);
       Serial.print("Ratio|=>");
-      Serial.print((*PointingMax / tab.maxSignal) * 100);
+      Serial.print((PointingMax / tab.maxSignal) * 100);
       Serial.println("%");
     } 
       });
